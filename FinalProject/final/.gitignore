@@ -21,3 +21,23 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+cat >> .gitignore <<'EOF'
+# Node/React
+node_modules/
+.cache/
+dist/
+build/
+# Common extras
+npm-debug.log*
+yarn-*.log*
+.DS_Store
+coverage/
+.next/
+out/
+EOF
+
+# Stop tracking anything already added from these dirs
+git rm -r --cached node_modules .cache dist build 2>/dev/null || true
+git add .gitignore
+git commit -m "chore: ignore deps/caches/artifacts"
