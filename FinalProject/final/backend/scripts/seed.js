@@ -9,14 +9,15 @@ const User = require("../models/User");
 const Category = require("../models/Category");
 const Product = require("../models/Product");
 
-const productImagesDir = path.join(__dirname, "..", "public", "assets", "products");
+// Use uploaded images from public/uploads/products instead of public/assets/products
+const productImagesDir = path.join(__dirname, "..", "public", "uploads", "products");
 
-// Create product images directory if it doesn't exist
+// Ensure the uploads/products directory exists
 if (!fs.existsSync(productImagesDir)) {
   fs.mkdirSync(productImagesDir, { recursive: true });
 }
 
-// Create resized image directories
+// Create resized image directories under uploads/products
 const imageDirs = {
   original: productImagesDir,
   large: path.join(productImagesDir, "large"),
@@ -28,7 +29,7 @@ for (const d of Object.values(imageDirs)) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
-// Create a default product image if it doesn't exist
+// Create a default product image in uploads/products if it doesn't exist
 const defaultImagePath = path.join(productImagesDir, "default-product.jpg");
 if (!fs.existsSync(defaultImagePath)) {
   // Create a simple 1x1 pixel JPEG
@@ -258,7 +259,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["nepali", "traditional", "gundruk"],
       categoryName: "Nepali Products",
-      images: [],
+      images: ["Gundruk.jpg"],
     },
     {
       name: "Sukuti (Dried Meat)",
@@ -272,7 +273,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["nepali", "meat", "sukuti"],
       categoryName: "Nepali Products",
-      images: [],
+      images: ["Sukuti.jpg"],
     },
     
     // Spices & Seasonings
@@ -288,7 +289,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["spice", "timur", "pepper"],
       categoryName: "Spices & Seasonings",
-      images: [],
+      images: ["Timur.jpg"],
     },
     {
       name: "Jimbu (Himalayan Herb)",
@@ -316,7 +317,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["spice", "curry", "masala"],
       categoryName: "Spices & Seasonings",
-      images: [],
+      images: ["Nepali Spices.webp"],
     },
     
     // Tea & Beverages
@@ -360,7 +361,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["tea", "traditional", "chiya"],
       categoryName: "Tea & Beverages",
-      images: [],
+      images: ["Nepali chiya.jpg"],
     },
     
     // Rice & Grains
@@ -390,7 +391,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["rice", "basmati", "premium"],
       categoryName: "Rice & Grains",
-      images: [],
+      images: ["Rice and Grains.jpg"],
     },
     {
       name: "Red Rice (Traditional)",
@@ -420,7 +421,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["snack", "sweet", "sel-roti"],
       categoryName: "Snacks & Sweets",
-      images: [],
+      images: ["Sweets.jpg"],
     },
     {
       name: "Laddu (Sweet Balls)",
@@ -434,7 +435,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["sweet", "laddu", "traditional"],
       categoryName: "Snacks & Sweets",
-      images: [],
+      images: ["Sweets.jpg"],
     },
     {
       name: "Khir (Rice Pudding)",
@@ -448,7 +449,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["sweet", "khir", "pudding"],
       categoryName: "Snacks & Sweets",
-      images: [],
+      images: ["Sweets.jpg"],
     },
     
     // Health & Wellness
@@ -464,7 +465,7 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["health", "ayurvedic", "immunity"],
       categoryName: "Health & Wellness",
-      images: [],
+      images: ["Health and wellness.jpg"],
     },
     {
       name: "Turmeric Powder (Organic)",
@@ -492,43 +493,85 @@ async function ensureSampleProducts(categories) {
       origin: "Nepal",
       tags: ["health", "ginger", "digestion"],
       categoryName: "Health & Wellness",
-      images: [],
+      // Example: reference a filename that exists in public/uploads/products
+      images: ["Health and wellness.jpg"],
     }
   ];
 
   for (const productData of products) {
     const slug = slugify(productData.name);
     const existing = await Product.findOne({ slug });
-    if (existing) continue;
+    if (existing) {
+      // Update existing product's images and key fields so seed can be re-run safely
+      existing.images = images;
+      existing.price = productData.price;
+      existing.comparePrice = productData.comparePrice;
+      existing.description = productData.description;
+      existing.shortDescription = productData.shortDescription;
+      existing.stock = productData.stock;
+      existing.weight = productData.weight;
+      existing.origin = productData.origin;
+      existing.tags = productData.tags;
+      existing.category = category._id;
+      existing.status = existing.status || "active";
+      await existing.save();
+      console.log(`Updated existing product: ${productData.name}`);
+      continue;
+    }
 
     // Find the category by name
     const category = categories.find(cat => cat.name === productData.categoryName);
     if (!category) continue;
 
-    // Always use local image from assets/products if present
-    const exts = [".jpg", ".jpeg", ".png", ".webp"];
-    let localFile = null;
-    for (const ext of exts) {
-      const candidate = `${slug}${ext}`;
-      if (fs.existsSync(path.join(productImagesDir, candidate))) {
-        localFile = candidate;
-        break;
+    // Build images array.
+    // Priority:
+    // 1) If productData.images contains filenames, use those (from uploads/products)
+    // 2) Try slug-based filenames (slug.jpg/.png/.webp etc.) in uploads/products
+    // 3) Fallback to default-product.jpg in uploads/products
+    const images = [];
+
+    // Helper to push an upload image if it exists
+    function pushUploadImage(fileName) {
+      const base = path.basename(fileName);
+      const fullPath = path.join(productImagesDir, base);
+      if (fs.existsSync(fullPath)) {
+        images.push({
+          url: `/uploads/products/${encodeURIComponent(base)}`,
+          urlLarge: `/uploads/products/large/${encodeURIComponent(base)}`,
+          urlMedium: `/uploads/products/medium/${encodeURIComponent(base)}`,
+          urlThumb: `/uploads/products/thumb/${encodeURIComponent(base)}`,
+          alt: productData.name,
+          isPrimary: images.length === 0,
+        });
+        return true;
+      }
+      return false;
+    }
+
+    // 1) If the product explicitly provides image filenames in productData.images, use them
+    if (productData.images && Array.isArray(productData.images) && productData.images.length > 0) {
+      for (const imgEntry of productData.images) {
+        // allow entries like 'Gundruk.jpg' or '/uploads/products/Gundruk.jpg' or full paths
+        const base = path.basename(imgEntry);
+        if (!pushUploadImage(base)) {
+          console.warn(`Seed: image file not found in uploads for product ${productData.name}: ${base}`);
+        }
       }
     }
-    const images = [];
-    if (localFile) {
-      const localUrl = `/assets/products/${localFile}`;
-      images.push({
-        url: localUrl,
-        urlLarge: `/assets/products/large/${localFile}`,
-        urlMedium: `/assets/products/medium/${localFile}`,
-        urlThumb: `/assets/products/thumb/${localFile}`,
-        alt: productData.name,
-        isPrimary: true,
-      });
-    } else {
-      // Fallback to default image if no local file
-      const defaultUrl = '/assets/products/default-product.jpg';
+
+    // 2) If no images found yet, try slug-based lookup in uploads/products
+    if (images.length === 0) {
+      const exts = [".jpg", ".jpeg", ".png", ".webp"];
+      for (const ext of exts) {
+        const candidate = `${slug}${ext}`;
+        if (pushUploadImage(candidate)) break;
+      }
+    }
+
+    // 3) Final fallback to default image in uploads/products
+    if (images.length === 0) {
+      const defaultUrl = '/uploads/products/default-product.jpg';
+      // ensure default exists (it is created above if missing)
       images.push({
         url: defaultUrl,
         urlLarge: defaultUrl,
